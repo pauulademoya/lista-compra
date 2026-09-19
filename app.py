@@ -36,6 +36,10 @@ def cargar_items() -> list[str]:
             r.raise_for_status()
             contenido = r.json()["files"].get("lista.json", {}).get("content", "[]")
             datos = json.loads(contenido or "[]")
+        except requests.exceptions.HTTPError as e:
+            codigo = e.response.status_code if e.response is not None else "?"
+            st.error(f"No se pudo cargar la lista (código {codigo}). Recarga la página en un momento 🙏")
+            st.stop()
         except Exception:
             # Si no se puede leer, paramos: mejor no mostrar (ni machacar) nada.
             st.error("No se pudo cargar la lista. Recarga la página en un momento 🙏")
@@ -61,6 +65,10 @@ def guardar_items(items: list[str]) -> None:
                 timeout=10,
             )
             r.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            codigo = e.response.status_code if e.response is not None else "?"
+            st.error(f"No se pudo guardar el cambio (código {codigo}). Inténtalo de nuevo 🙏")
+            st.stop()
         except Exception:
             st.error("No se pudo guardar el cambio. Inténtalo de nuevo 🙏")
             st.stop()
