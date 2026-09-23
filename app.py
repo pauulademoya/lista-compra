@@ -23,19 +23,34 @@ def _gist_config() -> tuple[str, str] | None:
         return None
 
 
+@st.cache_resource(show_spinner=False)
+def _http() -> requests.Session:
+    # Una sesión reutilizada entre recargas: evita repetir el apretón de manos
+    # TLS con GitHub en cada interacción.
+    return requests.Session()
+
+
+@st.cache_data(ttl=6, show_spinner=False)
+def _leer_gist(gist_id: str, token: str) -> list[str]:
+    r = _http().get(
+        GIST_API.format(id=gist_id),
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=8,
+    )
+    r.raise_for_status()
+    contenido = r.json()["files"].get("lista.json", {}).get("content", "[]")
+    datos = json.loads(contenido or "[]")
+    return [str(x) for x in datos] if isinstance(datos, list) else []
+
+
 def cargar_items() -> list[str]:
     cfg = _gist_config()
     if cfg:
         gist_id, token = cfg
         try:
-            r = requests.get(
-                GIST_API.format(id=gist_id),
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
-            )
-            r.raise_for_status()
-            contenido = r.json()["files"].get("lista.json", {}).get("content", "[]")
-            datos = json.loads(contenido or "[]")
+            # En caché unos segundos: así marcar una casilla o teclear no
+            # dispara una petición de red en cada rerun de Streamlit.
+            return _leer_gist(gist_id, token)
         except requests.exceptions.HTTPError as e:
             codigo = e.response.status_code if e.response is not None else "?"
             st.error(f"No se pudo cargar la lista (código {codigo}). Recarga la página en un momento 🙏")
@@ -44,7 +59,6 @@ def cargar_items() -> list[str]:
             # Si no se puede leer, paramos: mejor no mostrar (ni machacar) nada.
             st.error("No se pudo cargar la lista. Recarga la página en un momento 🙏")
             st.stop()
-        return [str(x) for x in datos] if isinstance(datos, list) else []
     try:
         datos = json.loads(DATA_FILE.read_text(encoding="utf-8"))
         return [str(x) for x in datos] if isinstance(datos, list) else []
@@ -58,11 +72,11 @@ def guardar_items(items: list[str]) -> None:
     if cfg:
         gist_id, token = cfg
         try:
-            r = requests.patch(
+            r = _http().patch(
                 GIST_API.format(id=gist_id),
                 headers={"Authorization": f"Bearer {token}"},
                 json={"files": {"lista.json": {"content": contenido}}},
-                timeout=10,
+                timeout=8,
             )
             r.raise_for_status()
         except requests.exceptions.HTTPError as e:
@@ -72,6 +86,9 @@ def guardar_items(items: list[str]) -> None:
         except Exception:
             st.error("No se pudo guardar el cambio. Inténtalo de nuevo 🙏")
             st.stop()
+        # Invalida la caché: la próxima lectura (en este u otro dispositivo)
+        # debe ver ya el cambio, no la versión anterior servida en caché.
+        _leer_gist.clear()
     else:
         DATA_FILE.write_text(contenido, encoding="utf-8")
 
