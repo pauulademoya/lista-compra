@@ -59,17 +59,25 @@ def main() -> int:
 
         print("La app parece dormida: buscando el botón para despertarla...")
         if intentar_despertar(page):
-            for _ in range(12):
-                page.wait_for_timeout(10000)
-                if app_esta_cargada(page):
-                    print("¡Despertada correctamente!")
-                    browser.close()
-                    return 0
-            print("Se pulsó el botón pero la app no terminó de cargar a tiempo.")
-            browser.close()
-            return 1
+            pulsado = True
+        else:
+            pulsado = False
 
-        print("No se encontró ni la app ni un botón para despertarla.")
+        # Streamlit puede tardar varios minutos en redesplegar el contenedor.
+        # Mientras tanto no siempre se ve el botón (a veces solo hay un
+        # mensaje de "reiniciando"), así que seguimos recargando y, si en
+        # algún momento reaparece el botón, lo volvemos a pulsar.
+        for intento in range(18):
+            page.wait_for_timeout(15000)
+            page.reload(wait_until="load", timeout=60000)
+            if app_esta_cargada(page):
+                print(f"¡Despertada correctamente! (tras {intento + 1} comprobaciones)")
+                browser.close()
+                return 0
+            if intentar_despertar(page):
+                pulsado = True
+
+        print(f"La app no terminó de cargar a tiempo (se pulsó el botón: {pulsado}).")
         browser.close()
         return 1
 
